@@ -3,6 +3,8 @@ use std::time::{Duration, Instant};
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
+use super::SupervisorError;
+
 pub type DynTask = Box<dyn CloneableSupervisedTask>;
 
 pub type TaskError = anyhow::Error;
@@ -75,7 +77,7 @@ impl std::fmt::Display for TaskStatus {
 pub(crate) struct TaskHandle {
     pub(crate) status: TaskStatus,
     pub(crate) task: DynTask,
-    pub(crate) main_task_handle: Option<JoinHandle<()>>,
+    pub(crate) main_task_handle: Option<JoinHandle<Result<(), SupervisorError>>>,
     pub(crate) completion_task_handle: Option<JoinHandle<()>>,
     pub(crate) restart_attempts: u32,
     pub(crate) started_at: Option<Instant>,

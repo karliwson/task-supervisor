@@ -17,6 +17,7 @@ with_tracing = ["dep:tracing"]
 tokio = { version = "^1.43.0", features = ["full", "test-util"] }
 tokio-util = "0.7.13"
 async-trait = "0.1.87"
+futures = { version = "0.3.31", features = ["compat"] }
 thiserror = "2.0.12"
 anyhow = "1"
 

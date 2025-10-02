@@ -4,10 +4,13 @@ pub(crate) mod handle;
 use std::{
     collections::HashMap,
     time::{Duration, Instant},
+    panic::AssertUnwindSafe,
 };
 
 use tokio::{sync::mpsc, time::interval};
 use tokio_util::sync::CancellationToken;
+
+use futures::FutureExt;
 
 #[cfg(feature = "with_tracing")]
 use tracing::{debug, error, info, warn};
@@ -24,6 +27,8 @@ pub enum SupervisorError {
         current_percentage: f64,
         threshold: f64,
     },
+    #[error("Task panicked: {0}")]
+    TaskPanic(String),
 }
 
 /// Internal messages sent from tasks and by the `Supervisor` to manage task lifecycle.
@@ -121,10 +126,6 @@ impl Supervisor {
             }
             SupervisedTaskMessage::Completed(task_name, outcome) => {
                 #[cfg(feature = "with_tracing")]
-                match &outcome {
-                    Ok(()) => info!("Task '{task_name}' completed successfully"),
-                    Err(e) => warn!("Task '{task_name}' completed with error: {e}"),
-                }
                 self.handle_task_completion(task_name, outcome).await;
             }
             SupervisedTaskMessage::Shutdown => {
@@ -235,7 +236,7 @@ impl Supervisor {
         // Main Task Execution
         let mut task_instance = task_handle.task.clone_box();
         let token_main = token.clone();
-        let main_task_execution_handle = tokio::spawn(async move {
+        let main_task_execution_handle = Self::spawn_panic_safe(async move {
             tokio::select! {
                 _ = token_main.cancelled() => { }
                 run_result = task_instance.run() => {
@@ -430,4 +431,27 @@ impl Supervisor {
 
         Ok(())
     }
+
+    pub fn spawn_panic_safe<F, T>(fut: F) -> tokio::task::JoinHandle<Result<T, SupervisorError>>
+    where
+        F: std::future::Future<Output = T> + Send + 'static,
+        T: Send + 'static,
+    {
+        tokio::spawn(async move {
+            match AssertUnwindSafe(fut).catch_unwind().await {
+                Ok(v) => Ok(v),
+                Err(panic) => {
+                    let msg = if let Some(s) = panic.downcast_ref::<&str>() { (*s).to_string() }
+                        else if let Some(s) = panic.downcast_ref::<String>() { s.clone() }
+                        else { "non-string panic payload".to_string() };
+
+                    #[cfg(feature = "with_tracing")]
+                    error!("task panicked: {}", msg);
+
+                    Err(SupervisorError::TaskPanic(msg))
+                }
+            }
+        })
+    }
+
 }
