@@ -126,6 +126,10 @@ impl Supervisor {
             }
             SupervisedTaskMessage::Completed(task_name, outcome) => {
                 #[cfg(feature = "with_tracing")]
+                match &outcome {
+                    Ok(()) => info!("Received completion success message for task '{task_name}'"),
+                    Err(e) => warn!("Received completion error message for task '{task_name}': {e}"),
+                }
                 self.handle_task_completion(task_name, outcome).await;
             }
             SupervisedTaskMessage::Shutdown => {
@@ -236,7 +240,7 @@ impl Supervisor {
         // Main Task Execution
         let mut task_instance = task_handle.task.clone_box();
         let token_main = token.clone();
-        let main_task_execution_handle = Self::spawn_panic_safe(async move {
+        let main_task_execution_handle = Self::spawn_panic_safe(task_name.clone(), async move {
             tokio::select! {
                 _ = token_main.cancelled() => { }
                 run_result = task_instance.run() => {
@@ -432,7 +436,7 @@ impl Supervisor {
         Ok(())
     }
 
-    pub fn spawn_panic_safe<F, T>(fut: F) -> tokio::task::JoinHandle<Result<T, SupervisorError>>
+    pub fn spawn_panic_safe<F, T>(task_name: String, fut: F) -> tokio::task::JoinHandle<Result<T, SupervisorError>>
     where
         F: std::future::Future<Output = T> + Send + 'static,
         T: Send + 'static,
@@ -446,7 +450,7 @@ impl Supervisor {
                         else { "non-string panic payload".to_string() };
 
                     #[cfg(feature = "with_tracing")]
-                    error!("task panicked: {}", msg);
+                    error!("Task '{task_name}' panicked: {msg}");
 
                     Err(SupervisorError::TaskPanic(msg))
                 }
