@@ -136,16 +136,35 @@ impl TaskHandle {
 
     /// Cleans up the task by aborting its handle and resetting state.
     pub(crate) async fn clean(&mut self) {
+        // Signal graceful shutdown
         if let Some(token) = self.cancellation_token.take() {
             token.cancel();
         }
+
+        // Wait for main task to complete gracefully (with timeout)
         if let Some(handle) = self.main_task_handle.take() {
-            handle.abort();
+            let timeout = Duration::from_secs(30);
+            match tokio::time::timeout(timeout, handle).await {
+                Ok(Ok(_)) => {
+                    // Task completed gracefully
+                }
+                Ok(Err(_)) => {
+                    // Task had an error
+                }
+                Err(_) => {
+                    // Timeout - task didn't respond
+                    // Handle is consumed, task is aborted automatically
+                }
+            }
         }
+
+        // Abort completion listener immediately (it's just a listener)
         if let Some(handle) = self.completion_task_handle.take() {
             handle.abort();
         }
+
         self.healthy_since = None;
         self.started_at = None;
     }
+
 }

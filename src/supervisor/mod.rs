@@ -239,14 +239,10 @@ impl Supervisor {
 
         // Main Task Execution
         let mut task_instance = task_handle.task.clone_box();
-        let token_main = token.clone();
         let main_task_execution_handle = Self::spawn_panic_safe(task_name.clone(), async move {
-            tokio::select! {
-                _ = token_main.cancelled() => { }
-                run_result = task_instance.run() => {
-                    let _ = completion_tx.send(run_result).await;
-                }
-            }
+            // The task itself is responsible for detecting shutdown and exiting properly
+            let run_result = task_instance.run().await;
+            let _ = completion_tx.send(run_result).await;
         });
 
         task_handle.main_task_handle = Some(main_task_execution_handle);
